@@ -28,6 +28,14 @@ PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
         ],
         "temperature_range": (0.0, 1.0),
     },
+    "atlascloud": {
+        "base_url": "https://api.atlascloud.ai/v1",
+        "env_key": "ATLASCLOUD_API_KEY",
+        "default_model": "deepseek-ai/deepseek-v4-pro",
+        "models": [
+            "deepseek-ai/deepseek-v4-pro",
+        ],
+    },
 }
 
 
