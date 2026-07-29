@@ -23,6 +23,7 @@ from interfaces import (
 from tenacity import retry
 
 from utils.text import safe_path_component
+from utils.novel2movie_cache import iter_score_chunk_files
 
 
 
@@ -184,11 +185,10 @@ class Novel2MoviePipeline:
         retrieve_sem = asyncio.Semaphore(10)
         for event in extracted_events:
             chunks_dir = os.path.join(working_dir_retrieve, f"event_{event.index}")
-            if os.path.exists(chunks_dir) and os.listdir(chunks_dir):
+            score_files = list(iter_score_chunk_files(chunks_dir)) if os.path.exists(chunks_dir) else []
+            if score_files:
                 relevant = {}
-                for chunk_fname in os.listdir(chunks_dir):
-                    chunk_path = os.path.join(chunks_dir, chunk_fname)
-                    score = float(chunk_fname.split("-score_")[1].split(".txt")[0])
+                for chunk_path, score in score_files:
                     with open(chunk_path, "r", encoding="utf-8") as f:
                         relevant[f.read()] = score
                 event_idx_to_relevant_chunk_score_dict[event.index] = relevant
@@ -652,11 +652,10 @@ class Novel2MoviePipeline:
         tasks = []
         for event in extracted_events:
             chunks_dir = os.path.join(working_dir_retrieve, f"event_{event.index}")
-            if os.path.exists(chunks_dir) and len(os.listdir(chunks_dir)) > 0:
+            score_files = list(iter_score_chunk_files(chunks_dir)) if os.path.exists(chunks_dir) else []
+            if score_files:
                 relevant_chunk_score_dict = {}
-                for chunk_fname in os.listdir(chunks_dir):
-                    chunk_path = os.path.join(chunks_dir, chunk_fname)
-                    score = float(chunk_fname.split('-score_')[1].split('.txt')[0])
+                for chunk_path, score in score_files:
                     with open(chunk_path, "r", encoding="utf-8") as f:
                         chunk = f.read()
                     relevant_chunk_score_dict[chunk] = score
