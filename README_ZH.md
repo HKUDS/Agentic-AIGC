@@ -3,6 +3,10 @@
   <br>
   <br>
   <h1 align="center">ViMax: Agentic Video Generation</h1>
+  <p align="center">
+    <a href="https://trendshift.io/repositories/15299" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/15299" alt="HKUDS%2FViMax | Trendshift" width="250" height="55"/></a>
+    <a href="https://trendshift.io/repositories/15299?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-15299" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/15299/weekly?language=Python" alt="HKUDS%2FViMax | Trendshift" width="250" height="55"/></a>
+  </p>
 
   <div align="center">
   </div>
