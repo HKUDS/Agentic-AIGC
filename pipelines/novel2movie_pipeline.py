@@ -22,7 +22,7 @@ from interfaces import (
 )
 from tenacity import retry
 
-from utils.text import safe_path_component
+from utils.text import safe_path_component, compression_ratio_label
 
 
 
@@ -546,7 +546,7 @@ class Novel2MoviePipeline:
         print("📌 Summary:")
         print(f"📌 Before Compression: {len(novel_text)} characters")
         print(f"📌 After Compression: {len(compressed_novel)} characters")
-        print(f"📌 Compression Ratio: {len(compressed_novel) / len(novel_text):.2%}")
+        print(compression_ratio_label(novel_text, compressed_novel))
 
         print("📋 Step 1: Compress the novel text".center(80, "-"))
 
