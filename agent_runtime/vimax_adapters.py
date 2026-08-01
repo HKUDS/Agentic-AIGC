@@ -23,6 +23,7 @@ from pipelines.idea2video_pipeline import Idea2VideoPipeline
 from pipelines.script2video_pipeline import Script2VideoPipeline
 from tools.image_generator_nanobanana_yunwu_api import ImageGeneratorNanobananaYunwuAPI
 from tools.image_generator_openrouter_api import ImageGeneratorOpenRouterAPI
+from tools.image_generator_orcarouter_api import ImageGeneratorOrcaRouterAPI
 from tools.reranker_bge_silicon_api import RerankerBgeSiliconapi
 from tools.video_generator_openrouter_api import VideoGeneratorOpenRouterAPI
 from tools.video_generator_veo_yunwu_api import VideoGeneratorVeoYunwuAPI
@@ -571,14 +572,17 @@ def _build_chat_model() -> Any:
     )
 
 
-def _build_image_generator() -> ImageGeneratorNanobananaYunwuAPI | ImageGeneratorOpenRouterAPI:
+def _build_image_generator() -> ImageGeneratorNanobananaYunwuAPI | ImageGeneratorOpenRouterAPI | ImageGeneratorOrcaRouterAPI:
     api_key = image_api_key()
     if not api_key:
         raise RuntimeError("VIMAX_IMAGE_API_KEY, VIMAX_LLM_API_KEY, or configs/agent.local.yaml image/llm api_key is required for image generation")
     model = image_model()
     base_url = image_base_url()
-    if api_provider_from_base_url(base_url) == "openrouter":
+    provider = api_provider_from_base_url(base_url)
+    if provider == "openrouter":
         return ImageGeneratorOpenRouterAPI(api_key=api_key, model=model, base_url=base_url)
+    if provider == "orcarouter":
+        return ImageGeneratorOrcaRouterAPI(api_key=api_key, model=model, base_url=base_url)
     return ImageGeneratorNanobananaYunwuAPI(api_key=api_key, model=model, base_url=base_url)
 
 

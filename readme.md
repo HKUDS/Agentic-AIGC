@@ -253,6 +253,14 @@ video:
   api_key: <YOUR_API_KEY>
 ```
 
+The image generator adapter is matched automatically from `image.base_url`:
+
+| `image.base_url` | Adapter | Example `image.model` |
+| --- | --- | --- |
+| `https://openrouter.ai/api/v1` | `ImageGeneratorOpenRouterAPI` | `openai/gpt-image-2` |
+| `https://api.orcarouter.ai/v1` | `ImageGeneratorOrcaRouterAPI` | `openai/gpt-image-2` |
+| `https://yunwu.ai` | `ImageGeneratorNanobananaYunwuAPI` | `gemini-3.1-flash-image-preview` |
+
 Then, start the TUI from the ViMax root directory:
 ```bash
 vimax tui

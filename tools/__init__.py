@@ -7,6 +7,7 @@ from .image_generator_doubao_seedream_yunwu_api import ImageGeneratorDoubaoSeedr
 from .image_generator_nanobanana_google_api import ImageGeneratorNanobananaGoogleAPI
 from .image_generator_nanobanana_yunwu_api import ImageGeneratorNanobananaYunwuAPI
 from .image_generator_openrouter_api import ImageGeneratorOpenRouterAPI
+from .image_generator_orcarouter_api import ImageGeneratorOrcaRouterAPI
 
 # reranker for rag
 from .reranker_bge_silicon_api import RerankerBgeSiliconapi
@@ -27,6 +28,7 @@ __all__ = [
     "ImageGeneratorNanobananaGoogleAPI",
     "ImageGeneratorNanobananaYunwuAPI",
     "ImageGeneratorOpenRouterAPI",
+    "ImageGeneratorOrcaRouterAPI",
     "RerankerBgeSiliconapi",
     "VideoGeneratorDoubaoSeedanceYunwuAPI",
     "VideoGeneratorOmniYunwuAPI",

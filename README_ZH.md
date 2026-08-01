@@ -219,6 +219,15 @@ cp configs/agent.example.yaml configs/agent.local.yaml
 ```
 
 随后在 `configs/agent.local.yaml` 中配置 LLM、图像和视频供应商，并从 ViMax 根目录启动 TUI。
+
+图像生成适配器会根据 `image.base_url` 自动匹配：
+
+| `image.base_url` | 适配器 | `image.model` 示例 |
+| --- | --- | --- |
+| `https://openrouter.ai/api/v1` | `ImageGeneratorOpenRouterAPI` | `openai/gpt-image-2` |
+| `https://api.orcarouter.ai/v1` | `ImageGeneratorOrcaRouterAPI` | `openai/gpt-image-2` |
+| `https://yunwu.ai` | `ImageGeneratorNanobananaYunwuAPI` | `gemini-3.1-flash-image-preview` |
+
 ```bash
 vimax tui
 ```

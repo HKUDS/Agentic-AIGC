@@ -119,6 +119,8 @@ def api_provider_from_base_url(base_url: str) -> str:
     normalized = base_url.strip().lower()
     if "openrouter.ai" in normalized:
         return "openrouter"
+    if "orcarouter.ai" in normalized:
+        return "orcarouter"
     if "yunwu.ai" in normalized:
         return "yunwu"
     return ""
