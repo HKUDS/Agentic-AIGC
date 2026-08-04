@@ -42,7 +42,7 @@ class Idea2VideoPipeline:
 
     @classmethod
     def init_from_config(cls, config_path: str):
-        with open(config_path, "r") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
         chat_model_args = resolve_chat_model_config(config["chat_model"]["init_args"])
