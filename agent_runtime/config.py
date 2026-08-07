@@ -71,7 +71,7 @@ def image_base_url(workspace_root: str | Path = ".") -> str:
 
 
 def image_api_key(workspace_root: str | Path = ".") -> str:
-    return config_value("image", "api_key", ["VIMAX_IMAGE_API_KEY", "VIMAX_LLM_API_KEY", "VIMAX_API_KEY"], llm_api_key(workspace_root), workspace_root)
+    return config_value("image", "api_key", ["VIMAX_IMAGE_API_KEY", "MUAPI_API_KEY", "VIMAX_LLM_API_KEY", "VIMAX_API_KEY"], llm_api_key(workspace_root), workspace_root)
 
 
 
@@ -112,13 +112,15 @@ def video_base_url(workspace_root: str | Path = ".") -> str:
 
 
 def video_api_key(workspace_root: str | Path = ".") -> str:
-    return config_value("video", "api_key", ["VIMAX_VIDEO_API_KEY", "VIMAX_LLM_API_KEY", "VIMAX_API_KEY"], llm_api_key(workspace_root), workspace_root)
+    return config_value("video", "api_key", ["VIMAX_VIDEO_API_KEY", "MUAPI_API_KEY", "VIMAX_LLM_API_KEY", "VIMAX_API_KEY"], llm_api_key(workspace_root), workspace_root)
 
 
 def api_provider_from_base_url(base_url: str) -> str:
     normalized = base_url.strip().lower()
     if "openrouter.ai" in normalized:
         return "openrouter"
+    if "muapi.ai" in normalized:
+        return "muapi"
     if "yunwu.ai" in normalized:
         return "yunwu"
     return ""
@@ -127,7 +129,7 @@ def api_provider_from_base_url(base_url: str) -> str:
 def video_provider(workspace_root: str | Path = ".") -> str:
     """Infer the video API relay/provider from video.base_url.
 
-    This is not a model provider setting. OpenRouter/Yunwu are transport/API
+    This is not a model provider setting. OpenRouter/MuAPI/Yunwu are transport/API
     gateways here, so users should configure base_url and let the adapter pick
     the matching implementation.
     """

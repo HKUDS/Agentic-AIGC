@@ -22,9 +22,11 @@ from pipelines.novel2movie_pipeline import Novel2MoviePipeline
 from pipelines.idea2video_pipeline import Idea2VideoPipeline
 from pipelines.script2video_pipeline import Script2VideoPipeline
 from tools.image_generator_nanobanana_yunwu_api import ImageGeneratorNanobananaYunwuAPI
+from tools.image_generator_muapi import ImageGeneratorMuAPI
 from tools.image_generator_openrouter_api import ImageGeneratorOpenRouterAPI
 from tools.reranker_bge_silicon_api import RerankerBgeSiliconapi
 from tools.video_generator_openrouter_api import VideoGeneratorOpenRouterAPI
+from tools.video_generator_muapi import VideoGeneratorMuAPI
 from tools.video_generator_veo_yunwu_api import VideoGeneratorVeoYunwuAPI
 
 from .config import api_provider_from_base_url, embedding_api_key, embedding_base_url, embedding_model, embedding_model_provider, image_api_key, image_base_url, image_model, llm_api_key, llm_base_url, llm_model, llm_model_provider, reranker_api_key, reranker_base_url, reranker_model, video_api_key, video_base_url, video_model, video_provider
@@ -571,26 +573,31 @@ def _build_chat_model() -> Any:
     )
 
 
-def _build_image_generator() -> ImageGeneratorNanobananaYunwuAPI | ImageGeneratorOpenRouterAPI:
+def _build_image_generator() -> ImageGeneratorNanobananaYunwuAPI | ImageGeneratorMuAPI | ImageGeneratorOpenRouterAPI:
     api_key = image_api_key()
     if not api_key:
-        raise RuntimeError("VIMAX_IMAGE_API_KEY, VIMAX_LLM_API_KEY, or configs/agent.local.yaml image/llm api_key is required for image generation")
+        raise RuntimeError("VIMAX_IMAGE_API_KEY, MUAPI_API_KEY, VIMAX_LLM_API_KEY, or configs/agent.local.yaml image/llm api_key is required for image generation")
     model = image_model()
     base_url = image_base_url()
-    if api_provider_from_base_url(base_url) == "openrouter":
+    provider = api_provider_from_base_url(base_url)
+    if provider == "openrouter":
         return ImageGeneratorOpenRouterAPI(api_key=api_key, model=model, base_url=base_url)
+    if provider == "muapi":
+        return ImageGeneratorMuAPI(api_key=api_key, model=model, base_url=base_url)
     return ImageGeneratorNanobananaYunwuAPI(api_key=api_key, model=model, base_url=base_url)
 
 
-def _build_video_generator() -> VideoGeneratorVeoYunwuAPI | VideoGeneratorOpenRouterAPI:
+def _build_video_generator() -> VideoGeneratorVeoYunwuAPI | VideoGeneratorMuAPI | VideoGeneratorOpenRouterAPI:
     api_key = video_api_key()
     if not api_key:
-        raise RuntimeError("VIMAX_VIDEO_API_KEY, VIMAX_LLM_API_KEY, or configs/agent.local.yaml video/llm api_key is required for video generation")
+        raise RuntimeError("VIMAX_VIDEO_API_KEY, MUAPI_API_KEY, VIMAX_LLM_API_KEY, or configs/agent.local.yaml video/llm api_key is required for video generation")
     model = video_model()
     base_url = video_base_url()
     provider = video_provider().strip().lower()
     if provider == "openrouter":
         return VideoGeneratorOpenRouterAPI(api_key=api_key, model=model, base_url=base_url)
+    if provider == "muapi":
+        return VideoGeneratorMuAPI(api_key=api_key, model=model, base_url=base_url)
     if provider == "yunwu":
         return VideoGeneratorVeoYunwuAPI(api_key=api_key, t2v_model=model, ff2v_model=model, base_url=base_url)
     raise RuntimeError(f"Unsupported video base_url for automatic provider matching: {base_url}")

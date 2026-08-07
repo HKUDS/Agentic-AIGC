@@ -267,6 +267,8 @@ vimax tui resume <session_id>
 
 You can also keep `configs/agent.local.yaml` empty and provide the same values through environment variables, such as `VIMAX_LLM_API_KEY`, `VIMAX_IMAGE_API_KEY`, and `VIMAX_VIDEO_API_KEY`.
 
+For MuAPI-backed TUI or Web UI rendering, copy `configs/agent.muapi.example.yaml` to `configs/agent.local.yaml`, set `MUAPI_API_KEY`, and keep the image and video base URLs on `https://api.muapi.ai/api/v1`. The runtime selects the MuAPI adapters automatically.
+
 </details>
 
 <details>
@@ -323,6 +325,34 @@ video_generator:
 
 working_dir: .working_dir/idea2video
 ```
+
+### MuAPI provider
+
+ViMax also includes a MuAPI provider for its image and video generator interfaces. Set `MUAPI_API_KEY` before running a workflow; the provider uploads local reference frames, submits the selected MuAPI model, and polls the completed output automatically.
+
+```bash
+export MUAPI_API_KEY=<YOUR_MUAPI_API_KEY>
+```
+
+Use `configs/idea2video_muapi.yaml` or `configs/script2video_muapi.yaml`, or select the provider classes in an existing configuration:
+
+```yaml
+image_generator:
+  class_path: tools.ImageGeneratorMuAPI
+  init_args:
+    api_key:
+    text_to_image_model: flux-kontext-dev-t2i
+    image_to_image_model: flux-kontext-dev-i2i
+
+video_generator:
+  class_path: tools.VideoGeneratorMuAPI
+  init_args:
+    api_key:
+    t2v_model: veo3-fast-text-to-video
+    i2v_model: veo3-fast-image-to-video
+```
+
+`api_key:` may be left blank when `MUAPI_API_KEY` is set. See the [MuAPI API reference](https://muapi.ai/docs/api-reference) and [API-key setup](https://muapi.ai/access-keys) for account configuration and model-specific options.
 
 Then, provide a simple yet thoughtful idea and the corresponding creative requirements in main_idea2video.py.
 ```bash
