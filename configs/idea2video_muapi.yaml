@@ -1,0 +1,32 @@
+chat_model:
+  init_args:
+    model: google/gemini-2.5-flash-lite-preview-09-2025
+    model_provider: openai
+    api_key: # Set the key for the selected chat provider.
+    base_url: https://openrouter.ai/api/v1
+  max_requests_per_minute: 500
+  max_requests_per_day: 2000
+
+image_generator:
+  class_path: tools.ImageGeneratorMuAPI
+  init_args:
+    # Leave blank to read MUAPI_API_KEY from the environment.
+    api_key:
+    text_to_image_model: flux-kontext-dev-t2i
+    image_to_image_model: flux-kontext-dev-i2i
+    base_url: https://api.muapi.ai/api/v1
+  max_requests_per_minute: 10
+  max_requests_per_day: 100
+
+video_generator:
+  class_path: tools.VideoGeneratorMuAPI
+  init_args:
+    # Leave blank to read MUAPI_API_KEY from the environment.
+    api_key:
+    t2v_model: veo3-fast-text-to-video
+    i2v_model: veo3-fast-image-to-video
+    base_url: https://api.muapi.ai/api/v1
+  max_requests_per_minute: 2
+  max_requests_per_day: 10
+
+working_dir: .working_dir/idea2video_muapi

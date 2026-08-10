@@ -1,0 +1,32 @@
+# MuAPI provider example for the ViMax TUI and Web UI.
+# Copy this file to configs/agent.local.yaml, then set the LLM values.
+# The image and video sections use MUAPI_API_KEY when their api_key is empty.
+
+llm:
+  model_provider: openai
+  model: <YOUR_LLM_MODEL>
+  base_url: <YOUR_LLM_BASE_URL>
+  api_key: ''
+
+image:
+  model: flux-kontext-dev-t2i
+  base_url: https://api.muapi.ai/api/v1
+  api_key: ''
+
+video:
+  model: veo3-fast-text-to-video
+  base_url: https://api.muapi.ai/api/v1
+  api_key: ''
+
+# Optional. Fill these only when using novel2video planning.
+embedding:
+  model_provider: openai
+  model: <YOUR_EMBEDDING_MODEL>
+  base_url: <YOUR_EMBEDDING_BASE_URL>
+  api_key: ''
+
+# Optional. Fill these only when using novel2video planning.
+reranker:
+  model: <YOUR_RERANKER_MODEL>
+  base_url: <YOUR_RERANKER_BASE_URL>
+  api_key: ''
