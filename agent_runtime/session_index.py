@@ -15,6 +15,11 @@ try:
 except ImportError:  # pragma: no cover - non-POSIX platforms
     fcntl = None
 
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - non-Windows platforms
+    msvcrt = None
+
 
 STALE_KEYS = ["story", "characters", "script", "storyboard", "shot_descriptions", "camera_tree", "frames", "clips", "final_video"]
 
@@ -50,19 +55,36 @@ class SessionIndex:
             self.memory_path.write_text("# User Preferences\n", encoding="utf-8")
         if not self.sessions_path.exists():
             self.save({"active_session_id": "", "sessions": {}})
+        if msvcrt is not None:
+            # msvcrt.locking locks a byte range, so the file needs at least
+            # one byte before it can be locked. Written once here, outside
+            # any concurrent access, since Windows enforces this lock as
+            # mandatory: a bare read() on the lock file while another thread
+            # holds it would itself raise PermissionError.
+            lock_path = self.vimax_dir / "sessions.lock"
+            if not lock_path.exists():
+                lock_path.write_bytes(b"\0")
 
     @contextmanager
     def _locked(self):
-        if fcntl is None:
+        if fcntl is None and msvcrt is None:
             yield
             return
         lock_path = self.vimax_dir / "sessions.lock"
-        with open(lock_path, "a+", encoding="utf-8") as handle:
-            fcntl.flock(handle, fcntl.LOCK_EX)
+        with open(lock_path, "a+b") as handle:
+            if fcntl is not None:
+                fcntl.flock(handle, fcntl.LOCK_EX)
+            else:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
             try:
                 yield
             finally:
-                fcntl.flock(handle, fcntl.LOCK_UN)
+                if fcntl is not None:
+                    fcntl.flock(handle, fcntl.LOCK_UN)
+                else:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
     def load(self) -> dict[str, Any]:
         try:
