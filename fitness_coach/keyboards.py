@@ -92,6 +92,28 @@ def days_keyboard(prefix: str = "onb_days") -> Dict[str, Any]:
     )
 
 
+def onboarding_reminder_keyboard() -> Dict[str, Any]:
+    """Time picker shown at the end of onboarding."""
+    return _keyboard(
+        [
+            [
+                _button("07:00", "onb_reminder:07:00"),
+                _button("08:30", "onb_reminder:08:30"),
+            ],
+            [
+                _button("12:30", "onb_reminder:12:30"),
+                _button("18:00", "onb_reminder:18:00"),
+            ],
+            [
+                _button("19:00", "onb_reminder:19:00"),
+                _button("20:30", "onb_reminder:20:30"),
+            ],
+            [_button("🕐 Другое время", "onb_reminder:custom")],
+            [_button("Не напоминать", "onb_reminder:skip")],
+        ]
+    )
+
+
 def difficulty_keyboard() -> Dict[str, Any]:
     return _keyboard(
         [

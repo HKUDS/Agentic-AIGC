@@ -345,3 +345,22 @@ GENDER_LABELS = {
     "female": "женский",
     "other": "не указан",
 }
+
+
+# Default training days by weekly frequency, spaced for recovery (Monday = 0).
+_DEFAULT_TRAINING_DAYS = {
+    2: [0, 3],
+    3: [0, 2, 4],
+    4: [0, 1, 3, 4],
+    5: [0, 1, 2, 3, 4],
+}
+
+
+def default_training_days(days_per_week: int) -> list:
+    """
+    Weekdays to train given a weekly frequency.
+
+    Used to schedule the reminder created right after onboarding, so the pings
+    land on days that actually match the generated split.
+    """
+    return list(_DEFAULT_TRAINING_DAYS.get(_clamp_days(days_per_week), [0, 2, 4]))

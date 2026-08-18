@@ -47,6 +47,7 @@ from .workouts import (
     GENDER_LABELS,
     GOAL_LABELS,
     LEVEL_LABELS,
+    default_training_days,
     generate_program,
     render_program,
     render_workout,
@@ -65,6 +66,7 @@ ONBOARDING_ORDER = (
     "equipment",
     "days",
     "timezone",
+    "reminder",
 )
 
 BOT_COMMANDS = [
@@ -329,6 +331,10 @@ class FitnessBot:
             "equipment": (texts.ASK_EQUIPMENT, keyboards.equipment_keyboard()),
             "days": (texts.ASK_DAYS, keyboards.days_keyboard()),
             "timezone": (texts.ASK_TIMEZONE, None),
+            "reminder": (
+                texts.ASK_REMINDER.format(days=self._training_days_label(user)),
+                keyboards.onboarding_reminder_keyboard(),
+            ),
         }
         prompt, markup = prompts[step]
         self.storage.set_state(user.id, f"onb_{step}")
@@ -349,6 +355,10 @@ class FitnessBot:
         self, chat_id: int, user: User, step: str, value: str
     ) -> None:
         """Handle a button press during onboarding."""
+        if step == "reminder":
+            await self._onboarding_reminder_choice(chat_id, user, value)
+            return
+
         fields = {
             "gender": ("gender", str),
             "goal": ("goal", str),
@@ -371,6 +381,80 @@ class FitnessBot:
             await self._cmd_profile(chat_id, self.storage.get_user(user.id) or user, "")
             return
         await self._advance_onboarding(chat_id, user, step)
+
+    async def _onboarding_reminder_choice(
+        self, chat_id: int, user: User, value: str
+    ) -> None:
+        """Turn the final onboarding answer into a real reminder."""
+        if value == "skip":
+            await self._send(chat_id, texts.ONBOARDING_REMINDER_SKIPPED)
+            await self._advance_onboarding(chat_id, user, "reminder")
+            return
+
+        if value == "custom":
+            self.storage.set_state(user.id, "onb_reminder_time")
+            await self._send(chat_id, texts.ASK_REMINDER_CUSTOM_TIME)
+            return
+
+        time_local = parse_time_of_day(value)
+        if time_local is None:
+            return
+        await self._setup_profile_reminder(chat_id, user, time_local)
+        await self._advance_onboarding(chat_id, user, "reminder")
+
+    async def _setup_profile_reminder(
+        self, chat_id: int, user: User, time_local: str
+    ) -> None:
+        """
+        Create (or re-time) the workout reminder implied by the profile.
+
+        Days come from the weekly frequency the user picked, so the pings match
+        the generated split instead of an arbitrary daily schedule.
+        """
+        fresh = self.storage.get_user(user.id) or user
+        profile = fresh.profile
+        days = default_training_days(profile.days_per_week)
+        days_text = ",".join(str(day) for day in days)
+        offset = profile.timezone_offset_minutes
+        next_fire = compute_next_fire(time_local, days, offset)
+
+        existing = [
+            reminder
+            for reminder in self.storage.list_reminders(fresh.id)
+            if reminder.kind == "workout"
+        ]
+        if existing:
+            # Re-running /start must not pile up duplicates or hit the free
+            # tier's one-reminder limit; retime the existing one instead.
+            self.storage.update_reminder_schedule(
+                existing[0].id, fresh.id, time_local, days_text, next_fire
+            )
+            self.storage.set_reminder_enabled(existing[0].id, fresh.id, True)
+        elif reminder_slots_left(fresh.subscription, len(self.storage.list_reminders(fresh.id))) > 0:
+            self.storage.add_reminder(
+                user_id=fresh.id,
+                kind="workout",
+                time_local=time_local,
+                days=days_text,
+                text="",
+                next_fire_at=next_fire,
+            )
+        else:
+            await self._send(chat_id, texts.REMINDER_LIMIT_FREE)
+            return
+
+        await self._send(
+            chat_id,
+            texts.ONBOARDING_REMINDER_ON.format(
+                time=time_local,
+                days=format_days(days),
+                next=self._format_local(next_fire, offset),
+            ),
+        )
+
+    def _training_days_label(self, user: User) -> str:
+        fresh = self.storage.get_user(user.id) or user
+        return format_days(default_training_days(fresh.profile.days_per_week))
 
     # ------------------------------------------------------------------
     # Dialog state input
@@ -397,6 +481,13 @@ class FitnessBot:
         elif state == "promo":
             self.storage.set_state(user.id, "")
             await self._cmd_promo(chat_id, user, text)
+        elif state == "onb_reminder_time":
+            time_local = parse_time_of_day(text)
+            if time_local is None:
+                await self._send(chat_id, texts.INVALID_TIME)
+                return
+            await self._setup_profile_reminder(chat_id, user, time_local)
+            await self._advance_onboarding(chat_id, user, "reminder")
         elif state == "rem_time":
             await self._reminder_time_entered(chat_id, user, payload, text)
         elif state == "rem_days":

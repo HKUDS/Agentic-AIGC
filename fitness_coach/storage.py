@@ -424,6 +424,24 @@ class Storage:
             self._conn.commit()
         return cursor.rowcount > 0
 
+    def update_reminder_schedule(
+        self,
+        reminder_id: int,
+        user_id: int,
+        time_local: str,
+        days: str,
+        next_fire_at: float,
+    ) -> bool:
+        """Change when an existing reminder fires."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE reminders SET time_local = ?, days = ?, next_fire_at = ?"
+                " WHERE id = ? AND user_id = ?",
+                (time_local, days, next_fire_at, reminder_id, user_id),
+            )
+            self._conn.commit()
+        return cursor.rowcount > 0
+
     def set_reminder_enabled(self, reminder_id: int, user_id: int, enabled: bool) -> bool:
         with self._lock:
             cursor = self._conn.execute(

@@ -118,7 +118,7 @@ class BotTestCase(unittest.IsolatedAsyncioTestCase):
         BotTestCase._counter += 1
         return BotTestCase._counter
 
-    async def complete_onboarding(self, telegram_id=99):
+    async def complete_onboarding(self, telegram_id=99, reminder_time="19:00"):
         await self.send("/start", telegram_id)
         await self.tap("onb_gender:male", telegram_id)
         await self.send("30", telegram_id)
@@ -129,6 +129,7 @@ class BotTestCase(unittest.IsolatedAsyncioTestCase):
         await self.tap("onb_equipment:gym", telegram_id)
         await self.tap("onb_days:3", telegram_id)
         await self.send("+3", telegram_id)
+        await self.tap(f"onb_reminder:{reminder_time}", telegram_id)
         return self.storage.get_user_by_telegram_id(telegram_id)
 
     def make_pro(self, telegram_id=99, days=30):
@@ -189,6 +190,87 @@ class OnboardingTests(BotTestCase):
     async def test_features_ask_for_a_profile_before_it_exists(self):
         await self.send("/today")
         self.assertIn("/start", self.client.last_text)
+
+    async def test_registration_creates_a_reminder_from_the_profile(self):
+        user = await self.complete_onboarding(reminder_time="19:00")
+        reminders = self.storage.list_reminders(user.id)
+
+        self.assertEqual(len(reminders), 1)
+        self.assertEqual(reminders[0].kind, "workout")
+        self.assertEqual(reminders[0].time_local, "19:00")
+        # 3 workouts a week become Mon/Wed/Fri, matching the generated split.
+        self.assertEqual(reminders[0].weekdays(), [0, 2, 4])
+        self.assertTrue(reminders[0].enabled)
+        self.assertGreater(reminders[0].next_fire_at, time.time())
+        self.assertIn("Напоминания включены", self.client.all_text)
+
+    async def test_reminder_days_follow_the_weekly_frequency(self):
+        await self.send("/start")
+        await self.tap("onb_gender:female")
+        await self.send("28")
+        await self.send("165")
+        await self.send("60")
+        await self.tap("onb_goal:lose_weight")
+        await self.tap("onb_level:beginner")
+        await self.tap("onb_equipment:none")
+        await self.tap("onb_days:5")
+        await self.send("+3")
+        await self.tap("onb_reminder:07:00")
+
+        user = self.storage.get_user_by_telegram_id(99)
+        self.assertEqual(self.storage.list_reminders(user.id)[0].weekdays(), [0, 1, 2, 3, 4])
+
+    async def test_reminder_time_is_stored_in_the_users_timezone(self):
+        user = await self.complete_onboarding(reminder_time="07:00")
+        reminder = self.storage.list_reminders(user.id)[0]
+        fire = datetime.fromtimestamp(reminder.next_fire_at, tz=timezone.utc)
+        local_hour = (fire.hour + 3) % 24  # Profile is UTC+3.
+        self.assertEqual((local_hour, fire.minute), (7, 0))
+
+    async def test_custom_reminder_time_during_registration(self):
+        await self.send("/start")
+        await self.tap("onb_gender:male")
+        await self.send("30")
+        await self.send("180")
+        await self.send("80")
+        await self.tap("onb_goal:keep_fit")
+        await self.tap("onb_level:beginner")
+        await self.tap("onb_equipment:home")
+        await self.tap("onb_days:3")
+        await self.send("+3")
+        await self.tap("onb_reminder:custom")
+        await self.send("нет")
+        self.assertIn("Не понял время", self.client.last_text)
+
+        await self.send("6:45")
+        user = self.storage.get_user_by_telegram_id(99)
+        self.assertEqual(self.storage.list_reminders(user.id)[0].time_local, "06:45")
+        self.assertEqual(user.state, "")
+
+    async def test_registration_can_finish_without_a_reminder(self):
+        user = await self.complete_onboarding(reminder_time="skip")
+        self.assertEqual(self.storage.list_reminders(user.id), [])
+        self.assertIn("без напоминаний", self.client.all_text)
+        self.assertEqual(user.state, "")
+
+    async def test_rerunning_start_retimes_the_reminder_instead_of_duplicating(self):
+        user = await self.complete_onboarding(reminder_time="19:00")
+        await self.complete_onboarding(reminder_time="08:30")
+
+        reminders = self.storage.list_reminders(user.id)
+        self.assertEqual(len(reminders), 1)
+        self.assertEqual(reminders[0].time_local, "08:30")
+
+    async def test_registered_reminder_actually_fires(self):
+        user = await self.complete_onboarding(reminder_time="19:00")
+        reminder = self.storage.list_reminders(user.id)[0]
+        # Pretend the scheduled moment arrived.
+        self.storage.mark_reminder_fired(reminder.id, 0.0, time.time() - 1)
+        self.client.reset()
+
+        self.assertEqual(await self.bot.scheduler.run_once(), 1)
+        self.assertIn("Время тренировки", self.client.last_text)
+        self.assertEqual(self.client.messages[-1]["chat_id"], user.telegram_id)
 
     async def test_cancel_clears_a_pending_step(self):
         await self.send("/start")
@@ -284,7 +366,7 @@ class FreeTierTests(BotTestCase):
 
 class ReminderTests(BotTestCase):
     async def test_free_user_can_create_one_workout_reminder(self):
-        user = await self.complete_onboarding()
+        user = await self.complete_onboarding(reminder_time="skip")
         await self.tap("rem_add:start")
         await self.tap("rem_kind:workout")
         await self.send("19:00")
@@ -298,7 +380,7 @@ class ReminderTests(BotTestCase):
         self.assertEqual(self.storage.get_user(user.id).state, "")
 
     async def test_second_reminder_is_blocked_on_free(self):
-        user = await self.complete_onboarding()
+        user = await self.complete_onboarding(reminder_time="skip")
         await self.tap("rem_add:start")
         await self.tap("rem_kind:workout")
         await self.send("19:00")
@@ -316,7 +398,7 @@ class ReminderTests(BotTestCase):
         self.assertIn("функция Pro", self.client.last_text)
 
     async def test_pro_user_can_create_a_custom_reminder(self):
-        user = await self.complete_onboarding()
+        user = await self.complete_onboarding(reminder_time="skip")
         self.make_pro()
         await self.tap("rem_add:start")
         await self.tap("rem_kind:custom")
@@ -331,7 +413,7 @@ class ReminderTests(BotTestCase):
         self.assertEqual(reminders[0].weekdays(), [0, 2, 4])
 
     async def test_invalid_time_keeps_the_dialog_open(self):
-        user = await self.complete_onboarding()
+        user = await self.complete_onboarding(reminder_time="skip")
         await self.tap("rem_add:start")
         await self.tap("rem_kind:workout")
         await self.send("завтра")
@@ -339,7 +421,7 @@ class ReminderTests(BotTestCase):
         self.assertTrue(self.storage.get_user(user.id).state.startswith("rem_time"))
 
     async def test_reminder_can_be_toggled_and_deleted(self):
-        user = await self.complete_onboarding()
+        user = await self.complete_onboarding(reminder_time="skip")
         await self.tap("rem_add:start")
         await self.tap("rem_kind:workout")
         await self.send("19:00")
@@ -367,7 +449,7 @@ class ReminderTests(BotTestCase):
         self.assertTrue(self.storage.get_reminder(reminder.id).enabled)
 
     async def test_timezone_change_reschedules_existing_reminders(self):
-        user = await self.complete_onboarding()
+        user = await self.complete_onboarding(reminder_time="skip")
         await self.tap("rem_add:start")
         await self.tap("rem_kind:workout")
         await self.send("19:00")
@@ -383,7 +465,7 @@ class ReminderTests(BotTestCase):
         self.assertGreater(after, time.time())
 
     async def test_scheduler_delivers_and_reschedules(self):
-        user = await self.complete_onboarding()
+        user = await self.complete_onboarding(reminder_time="skip")
         past = time.time() - 60
         reminder = self.storage.add_reminder(
             user.id, "workout", "19:00", "0,1,2,3,4,5,6", "", past
