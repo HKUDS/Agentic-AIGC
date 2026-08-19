@@ -9,7 +9,7 @@ from typing import List, Optional
 GOALS = ("lose_weight", "build_muscle", "keep_fit", "endurance")
 LEVELS = ("beginner", "intermediate", "advanced")
 GENDERS = ("male", "female", "other")
-EQUIPMENT = ("none", "home", "gym")
+EQUIPMENT = ("none", "home", "gym", "mix")
 
 REMINDER_KINDS = ("workout", "water", "weigh_in", "custom")
 
@@ -67,10 +67,13 @@ class Subscription:
 
 @dataclass
 class User:
-    """A Telegram user plus the state the bot keeps for them."""
+    """An account, reachable through Telegram, the web app, or both."""
 
     id: int
-    telegram_id: int
+    # None for a web account that has not linked Telegram yet.
+    telegram_id: Optional[int] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
     first_name: str = ""
     username: str = ""
     created_at: float = field(default_factory=time.time)
@@ -157,6 +160,8 @@ class Workout:
     focus: str
     exercises: List[Exercise] = field(default_factory=list)
     estimated_minutes: int = 0
+    # For "mix" programs: which place this day is meant for ("home"/"gym").
+    venue: str = ""
 
 
 @dataclass

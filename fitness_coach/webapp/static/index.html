@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<title>ИИ-фитнес-тренер</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --text: #14161a; --muted: #6b7280;
+    --line: #e4e6ea; --accent: #2f6df6; --accent-text: #ffffff;
+    --ok: #17864a; --warn: #b23c17; --chip: #eef1f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #171a20; --text: #eef0f3; --muted: #9aa2ae;
+      --line: #262b33; --accent: #4b82ff; --accent-text: #0b0d11;
+      --ok: #3ddc84; --warn: #ff8a65; --chip: #1e232b;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -.02em; }
+  h2 { font-size: 19px; margin: 0 0 14px; letter-spacing: -.01em; }
+  p.lead { color: var(--muted); margin: 0 0 22px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+    padding: 18px; margin-bottom: 14px;
+  }
+  label { display: block; font-size: 14px; color: var(--muted); margin: 0 0 6px; }
+  input {
+    width: 100%; padding: 14px; font-size: 17px; color: var(--text);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input.code { text-align: center; letter-spacing: .5em; font-size: 26px; font-weight: 600; }
+  button {
+    width: 100%; padding: 15px; font-size: 17px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: var(--accent-text);
+    border: 0; border-radius: 12px; margin-top: 12px;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  button.ghost {
+    background: transparent; color: var(--accent); border: 1px solid var(--line);
+    font-weight: 500;
+  }
+  .options { display: grid; gap: 10px; }
+  .options.two { grid-template-columns: 1fr 1fr; }
+  .options.four { grid-template-columns: repeat(4, 1fr); }
+  .opt {
+    padding: 14px; border: 1.5px solid var(--line); border-radius: 12px;
+    background: var(--card); color: var(--text); text-align: left; cursor: pointer;
+    font-size: 16px; margin: 0;
+  }
+  .opt small { display: block; color: var(--muted); font-size: 13px; font-weight: 400; margin-top: 3px; }
+  .opt[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .bar { height: 4px; background: var(--line); border-radius: 4px; margin-bottom: 20px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width .25s; }
+  .err { color: var(--warn); font-size: 14px; margin-top: 10px; min-height: 20px; }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .chip {
+    display: inline-block; padding: 3px 9px; border-radius: 999px;
+    background: var(--chip); color: var(--muted); font-size: 12px; margin-left: 6px;
+  }
+  .chip.gym { color: var(--accent); }
+  .ex { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); }
+  .ex:first-of-type { border-top: 0; }
+  .ex b { font-weight: 500; }
+  .ex span { color: var(--muted); font-size: 14px; white-space: nowrap; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .hidden { display: none; }
+  .steps { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ШАГ 1: вход -->
+  <section id="s-login">
+    <h1>ИИ-фитнес-тренер</h1>
+    <p class="lead">План тренировок под твою цель за минуту. Дома, в зале или микс — решаешь ты.</p>
+    <div class="card">
+      <label for="identifier">Телефон или почта</label>
+      <input id="identifier" type="text" inputmode="email" autocomplete="username"
+             placeholder="+7 999 123-45-67 или mail@example.com">
+      <button id="btn-request">Получить код</button>
+      <div class="err" id="login-err"></div>
+      <p class="hint">Пароль не нужен: пришлём одноразовый код. Продолжая, ты соглашаешься,
+        что бот даёт общие рекомендации и не заменяет врача.</p>
+    </div>
+  </section>
+
+  <!-- ШАГ 2: код -->
+  <section id="s-code" class="hidden">
+    <h1>Введи код</h1>
+    <p class="lead">Отправили на <b id="masked"></b>. Код действует 10 минут.</p>
+    <div class="card">
+      <input id="code" class="code" type="text" inputmode="numeric" autocomplete="one-time-code"
+             maxlength="6" placeholder="000000">
+      <button id="btn-verify">Подтвердить</button>
+      <button id="btn-resend" class="ghost">Отправить код ещё раз</button>
+      <button id="btn-back" class="ghost">Изменить контакт</button>
+      <div class="err" id="code-err"></div>
+    </div>
+  </section>
+
+  <!-- ШАГ 3: опрос -->
+  <section id="s-survey" class="hidden">
+    <div class="bar"><i id="progress" style="width:0%"></i></div>
+    <div class="steps" id="step-counter"></div>
+    <div class="card" id="survey-card"></div>
+    <div class="err" id="survey-err"></div>
+    <button id="btn-next">Далее</button>
+    <button id="btn-prev" class="ghost">Назад</button>
+  </section>
+
+  <!-- ШАГ 4: план -->
+  <section id="s-plan" class="hidden">
+    <h1>Твой план готов</h1>
+    <p class="lead" id="plan-summary"></p>
+    <div id="plan-body"></div>
+    <div class="card" id="link-card">
+      <h2>Напоминания в Telegram</h2>
+      <p class="muted" id="link-text">Подключи бота — он напомнит о тренировке в нужный день
+        и время, будет вести журнал и ответит на вопросы.</p>
+      <button id="btn-link">Подключить Telegram</button>
+      <div class="err" id="link-err"></div>
+    </div>
+  </section>
+
+</div>
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var state = {
+    token: localStorage.getItem("fc_token") || "",
+    identifier: "",
+    step: 0,
+    answers: {
+      gender: "", age: "", height_cm: "", weight_kg: "",
+      goal: "", level: "", equipment: "", days_per_week: 3,
+      reminder_time: "19:00",
+      timezone_offset_minutes: -new Date().getTimezoneOffset()
+    }
+  };
+
+  function show(id) {
+    ["s-login", "s-code", "s-survey", "s-plan"].forEach(function (name) {
+      $(name).classList.toggle("hidden", name !== id);
+    });
+    window.scrollTo(0, 0);
+  }
+
+  async function api(path, options) {
+    options = options || {};
+    var headers = { "Content-Type": "application/json" };
+    if (state.token) { headers.Authorization = "Bearer " + state.token; }
+    var response = await fetch(path, {
+      method: options.method || "GET",
+      headers: headers,
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+    var data = {};
+    try { data = await response.json(); } catch (error) { data = {}; }
+    if (!response.ok) {
+      throw new Error(data.message || "Сервис недоступен. Попробуй позже.");
+    }
+    return data;
+  }
+
+  function busy(button, on, label) {
+    button.disabled = on;
+    if (on) { button.dataset.label = button.textContent; button.textContent = label || "Секунду…"; }
+    else if (button.dataset.label) { button.textContent = button.dataset.label; }
+  }
+
+  // --- Вход -----------------------------------------------------------
+  $("btn-request").addEventListener("click", async function () {
+    var value = $("identifier").value.trim();
+    $("login-err").textContent = "";
+    if (!value) { $("login-err").textContent = "Укажи телефон или почту."; return; }
+    busy(this, true);
+    try {
+      var data = await api("/api/auth/request", { method: "POST", body: { identifier: value } });
+      state.identifier = value;
+      $("masked").textContent = data.masked;
+      if (data.dev_code) { $("code").value = data.dev_code; }
+      show("s-code");
+      startResendTimer();
+      $("code").focus();
+    } catch (error) {
+      $("login-err").textContent = error.message;
+    } finally { busy(this, false); }
+  });
+
+  var resendLeft = 0, resendTimer = null;
+  function startResendTimer() {
+    resendLeft = 60;
+    clearInterval(resendTimer);
+    resendTimer = setInterval(function () {
+      resendLeft -= 1;
+      var button = $("btn-resend");
+      if (resendLeft <= 0) {
+        clearInterval(resendTimer);
+        button.disabled = false;
+        button.textContent = "Отправить код ещё раз";
+      } else {
+        button.disabled = true;
+        button.textContent = "Отправить ещё раз через " + resendLeft + " сек";
+      }
+    }, 1000);
+    $("btn-resend").disabled = true;
+    $("btn-resend").textContent = "Отправить ещё раз через 60 сек";
+  }
+
+  $("btn-resend").addEventListener("click", function () { $("btn-request").click(); });
+  $("btn-back").addEventListener("click", function () { show("s-login"); });
+
+  $("btn-verify").addEventListener("click", async function () {
+    $("code-err").textContent = "";
+    busy(this, true, "Проверяем…");
+    try {
+      var data = await api("/api/auth/verify", {
+        method: "POST",
+        body: { identifier: state.identifier, code: $("code").value.trim() }
+      });
+      state.token = data.token;
+      localStorage.setItem("fc_token", data.token);
+      if (data.needs_survey) { startSurvey(); } else { loadPlan(); }
+    } catch (error) {
+      $("code-err").textContent = error.message;
+    } finally { busy(this, false); }
+  });
+
+  // --- Опрос ----------------------------------------------------------
+  var steps = [
+    {
+      key: "gender", title: "Твой пол?",
+      note: "Нужен только для расчёта калорий.",
+      options: [["male", "Мужской"], ["female", "Женский"], ["other", "Не указывать"]]
+    },
+    { key: "body", title: "Базовые параметры", note: "Нужны для расчёта нагрузки и калорий." },
+    {
+      key: "goal", title: "Какая цель?",
+      options: [
+        ["lose_weight", "Снизить вес", "Дефицит калорий + силовые, чтобы терять жир, а не мышцы"],
+        ["build_muscle", "Набрать мышцы", "Профицит и работа в диапазоне 8-12 повторений"],
+        ["keep_fit", "Поддержать форму", "Умеренный объём, 3 тренировки в неделю"],
+        ["endurance", "Выносливость", "Больше повторений, короткий отдых, кардио"]
+      ]
+    },
+    {
+      key: "level", title: "Опыт тренировок?",
+      options: [
+        ["beginner", "Новичок", "Меньше года или возвращаюсь после перерыва"],
+        ["intermediate", "Средний", "Тренируюсь регулярно больше года"],
+        ["advanced", "Продвинутый", "Несколько лет стажа, знаю технику базовых упражнений"]
+      ]
+    },
+    {
+      key: "equipment", title: "Где будешь тренироваться?",
+      note: "От этого зависит подбор упражнений.",
+      options: [
+        ["home", "Дома", "Гантели, резинки, турник — что есть под рукой"],
+        ["gym", "В зале", "Штанга, тренажёры, полный набор"],
+        ["mix", "Микс: дом и зал", "Чередуем: тяжёлые дни в зале, лёгкие дома"],
+        ["none", "Без оборудования", "Только собственный вес"]
+      ]
+    },
+    {
+      key: "days_per_week", title: "Сколько тренировок в неделю?",
+      note: "Выбирай честно — план должен выполняться.",
+      options: [[2, "2"], [3, "3"], [4, "4"], [5, "5"]], columns: "four"
+    },
+    {
+      key: "reminder_time", title: "Когда напоминать о тренировке?",
+      note: "Дни подберём по твоему плану. Напоминания приходят в Telegram.",
+      options: [
+        ["07:00", "07:00"], ["08:30", "08:30"], ["12:30", "12:30"],
+        ["18:00", "18:00"], ["19:00", "19:00"], ["20:30", "20:30"],
+        ["", "Без напоминаний"]
+      ], columns: "two"
+    }
+  ];
+
+  function startSurvey() { state.step = 0; show("s-survey"); renderStep(); }
+
+  function renderStep() {
+    var step = steps[state.step];
+    var card = $("survey-card");
+    $("survey-err").textContent = "";
+    $("progress").style.width = Math.round((state.step / steps.length) * 100) + "%";
+    $("step-counter").textContent = "Шаг " + (state.step + 1) + " из " + steps.length;
+    $("btn-prev").classList.toggle("hidden", state.step === 0);
+    $("btn-next").textContent = state.step === steps.length - 1 ? "Получить план" : "Далее";
+
+    var html = "<h2>" + step.title + "</h2>";
+    if (step.note) { html += '<p class="muted" style="margin:-8px 0 14px">' + step.note + "</p>"; }
+
+    if (step.key === "body") {
+      html +=
+        '<div class="row"><div><label for="age">Возраст</label>' +
+        '<input id="age" type="number" inputmode="numeric" value="' + state.answers.age + '" placeholder="29"></div>' +
+        '<div><label for="height">Рост, см</label>' +
+        '<input id="height" type="number" inputmode="numeric" value="' + state.answers.height_cm + '" placeholder="178"></div></div>' +
+        '<div style="margin-top:12px"><label for="weight">Вес, кг</label>' +
+        '<input id="weight" type="number" inputmode="decimal" step="0.1" value="' + state.answers.weight_kg + '" placeholder="78.5"></div>';
+    } else {
+      html += '<div class="options ' + (step.columns || "") + '">';
+      step.options.forEach(function (option) {
+        var value = option[0], label = option[1], note = option[2];
+        var active = String(state.answers[step.key]) === String(value);
+        html += '<button type="button" class="opt" data-value="' + value + '" aria-pressed="' + active + '">' +
+          "<b>" + label + "</b>" + (note ? "<small>" + note + "</small>" : "") + "</button>";
+      });
+      html += "</div>";
+    }
+    card.innerHTML = html;
+
+    card.querySelectorAll(".opt").forEach(function (button) {
+      button.addEventListener("click", function () {
+        state.answers[step.key] = button.dataset.value;
+        card.querySelectorAll(".opt").forEach(function (other) {
+          other.setAttribute("aria-pressed", other === button);
+        });
+        setTimeout(next, 140);
+      });
+    });
+  }
+
+  function collectBody() {
+    state.answers.age = $("age").value.trim();
+    state.answers.height_cm = $("height").value.trim();
+    state.answers.weight_kg = $("weight").value.trim();
+    if (!state.answers.age || !state.answers.height_cm || !state.answers.weight_kg) {
+      return "Заполни все три поля.";
+    }
+    return "";
+  }
+
+  function next() {
+    var step = steps[state.step];
+    if (step.key === "body") {
+      var error = collectBody();
+      if (error) { $("survey-err").textContent = error; return; }
+    } else if (state.answers[step.key] === "" && step.key !== "reminder_time") {
+      $("survey-err").textContent = "Выбери вариант.";
+      return;
+    }
+    if (state.step === steps.length - 1) { submitSurvey(); return; }
+    state.step += 1;
+    renderStep();
+  }
+
+  $("btn-next").addEventListener("click", next);
+  $("btn-prev").addEventListener("click", function () {
+    if (state.step > 0) { state.step -= 1; renderStep(); }
+  });
+
+  async function submitSurvey() {
+    $("survey-err").textContent = "";
+    busy($("btn-next"), true, "Собираем план…");
+    try {
+      var data = await api("/api/survey", { method: "POST", body: state.answers });
+      renderPlan(data);
+    } catch (error) {
+      $("survey-err").textContent = error.message;
+    } finally { busy($("btn-next"), false); }
+  }
+
+  // --- План -----------------------------------------------------------
+  async function loadPlan() {
+    try {
+      var data = await api("/api/plan");
+      if (data.needs_survey) { startSurvey(); return; }
+      renderPlan(data);
+    } catch (error) {
+      state.token = "";
+      localStorage.removeItem("fc_token");
+      show("s-login");
+    }
+  }
+
+  function renderPlan(data) {
+    var program = data.program;
+    $("plan-summary").textContent =
+      program.goal_label + " · " + program.level_label + " · " + program.equipment_label +
+      " · " + program.workouts.length + " тренировки в неделю (" + program.training_days + ")";
+
+    var html = "";
+    program.workouts.forEach(function (workout) {
+      html += '<div class="card"><h2>' + workout.title;
+      if (workout.venue_label) {
+        html += '<span class="chip ' + workout.venue + '">' + workout.venue_label + "</span>";
+      }
+      html += "</h2>";
+      workout.exercises.forEach(function (exercise) {
+        html += '<div class="ex"><b>' + exercise.name + "</b><span>" +
+          exercise.sets + "×" + exercise.reps + "</span></div>";
+      });
+      html += '<p class="muted" style="margin:12px 0 0">~' + workout.minutes +
+        " мин · отдых " + workout.exercises[0].rest_seconds + " сек</p></div>";
+    });
+    html += '<div class="card"><p class="muted" style="margin:0">' + program.notes + "</p></div>";
+    if (data.nutrition) {
+      html += '<div class="card"><h2>Питание</h2><p class="muted" style="margin:0">' +
+        data.nutrition.calories + " ккал · Б " + data.nutrition.protein_g +
+        " · Ж " + data.nutrition.fat_g + " · У " + data.nutrition.carbs_g +
+        " · вода " + data.nutrition.water_ml + " мл</p></div>";
+    }
+    $("plan-body").innerHTML = html;
+
+    if (data.telegram_linked) {
+      $("link-text").textContent = "Telegram подключён — напоминания уже приходят туда.";
+      $("btn-link").classList.add("hidden");
+    }
+    show("s-plan");
+  }
+
+  $("btn-link").addEventListener("click", async function () {
+    $("link-err").textContent = "";
+    busy(this, true);
+    try {
+      var data = await api("/api/telegram/link", { method: "POST" });
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        $("link-err").textContent = "Код привязки: " + data.code +
+          ". Отправь боту команду /start " + data.code;
+      }
+    } catch (error) {
+      $("link-err").textContent = error.message;
+    } finally { busy(this, false); }
+  });
+
+  // Уже входили — сразу к плану.
+  if (state.token) { loadPlan(); } else { show("s-login"); }
+})();
+</script>
+</body>
+</html>

@@ -494,9 +494,14 @@ class OfflineCoachTests(unittest.TestCase):
 
 
 class ConfigTests(unittest.TestCase):
-    def test_missing_token_is_rejected(self):
-        self.assertIsNotNone(Config().validate())
-        self.assertIsNone(Config(telegram_token="abc").validate())
+    def test_config_needs_at_least_one_service(self):
+        # Web-only is a valid deployment, bot-only needs a token.
+        self.assertIsNone(Config(web_enabled=True).validate())
+        self.assertIsNone(Config(telegram_token="abc", web_enabled=False).validate())
+        self.assertIsNotNone(Config(web_enabled=False).validate())
+
+    def test_invalid_port_is_rejected(self):
+        self.assertIsNotNone(Config(telegram_token="abc", web_port=0).validate())
 
     def test_env_parsing(self):
         env = {

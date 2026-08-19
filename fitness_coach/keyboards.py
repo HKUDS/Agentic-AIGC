@@ -75,6 +75,7 @@ def equipment_keyboard(prefix: str = "onb_equipment") -> Dict[str, Any]:
             [_button("🏠 Без оборудования", f"{prefix}:none")],
             [_button("🏋️ Гантели / резинки дома", f"{prefix}:home")],
             [_button("🏢 Тренажёрный зал", f"{prefix}:gym")],
+            [_button("🔄 Микс: дом и зал", f"{prefix}:mix")],
         ]
     )
 

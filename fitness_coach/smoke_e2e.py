@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 
+import aiohttp
 from aiohttp import web
 
 from . import telegram_api
@@ -24,6 +25,23 @@ from .coach import AICoach
 from .config import Config
 from .storage import Storage
 from .telegram_api import TelegramClient
+from .webapp.auth import AuthService
+from .webapp.delivery import Deliverer, DeliveryResult
+from .webapp.server import WebApp
+
+
+class CapturingDeliverer(Deliverer):
+    """Captures verification codes so the check can read them back."""
+
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, channel, identifier, code):
+        self.sent.append({"channel": channel, "identifier": identifier, "code": code})
+        return DeliveryResult(True)
+
+    def is_real(self, channel):
+        return True
 
 TOKEN = "111:FAKE"
 CHAT = 500100
@@ -126,6 +144,8 @@ async def main():
         promo_codes=["WELCOME"],
         reminder_tick_seconds=5,
         poll_timeout_seconds=1,
+        secret_key="smoke-test-secret",
+        bot_username="smoke_fitness_bot",
     )
     storage = Storage(db_path)
     client = TelegramClient(TOKEN)
@@ -285,7 +305,121 @@ async def main():
     row = probe.execute("SELECT * FROM reminders").fetchone()
     check("напоминание перепланировано вперёд", row["next_fire_at"] > time.time())
 
-    print("\n=== 8. Устойчивость ===")
+    print("\n=== 8. Веб-регистрация и связка с ботом ===")
+    deliverer = CapturingDeliverer()
+    webapp = WebApp(config, storage, auth=AuthService(storage, config.secret_key),
+                    deliverer=deliverer)
+    web_runner = web.AppRunner(webapp.app)
+    await web_runner.setup()
+    web_site = web.TCPSite(web_runner, "127.0.0.1", 0)
+    await web_site.start()
+    base = f"http://127.0.0.1:{web_site._server.sockets[0].getsockname()[1]}"
+
+    async with aiohttp.ClientSession() as http:
+        async def call(method, path, payload=None, token=None):
+            headers = {"Authorization": f"Bearer {token}"} if token else {}
+            async with http.request(
+                method, base + path, json=payload, headers=headers
+            ) as response:
+                return response.status, await response.json()
+
+        status, _ = await call("GET", "/healthz")
+        check("страница отвечает", status == 200)
+
+        status, data = await call("POST", "/api/auth/request",
+                                  {"identifier": "8 (999) 111-22-33"})
+        check("код запрошен по телефону", status == 200 and data.get("channel") == "phone",
+              data)
+        check("номер нормализован",
+              deliverer.sent and deliverer.sent[-1]["identifier"] == "+79991112233",
+              deliverer.sent[-1] if deliverer.sent else "")
+        check("код не возвращается клиенту", "dev_code" not in data)
+        check("номер замаскирован", data.get("masked", "").endswith("2233"), data)
+
+        status, blocked = await call("POST", "/api/auth/request",
+                                     {"identifier": "+79991112233"})
+        check("повторный запрос ограничен", status == 429 and blocked["error"] == "cooldown")
+
+        status, wrong = await call("POST", "/api/auth/verify",
+                                   {"identifier": "+79991112233", "code": "000000"})
+        check("неверный код отклонён", status == 400 and wrong["error"] == "wrong_code")
+
+        status, session = await call(
+            "POST", "/api/auth/verify",
+            {"identifier": "+79991112233", "code": deliverer.sent[-1]["code"]},
+        )
+        token = session.get("token", "")
+        check("вход по коду выполнен", status == 200 and bool(token), session)
+        check("новому аккаунту предложен опрос", session.get("needs_survey") is True)
+
+        status, _ = await call("GET", "/api/me")
+        check("без токена доступа нет", status == 401)
+
+        status, plan = await call("POST", "/api/survey", {
+            "gender": "female", "age": 28, "height_cm": 168, "weight_kg": 63.0,
+            "goal": "keep_fit", "level": "beginner", "equipment": "mix",
+            "days_per_week": 4, "timezone_offset_minutes": 180,
+            "reminder_time": "08:30",
+        }, token=token)
+        check("опрос принят и план собран", status == 200 and plan.get("ok") is True, plan)
+
+        venues = [w["venue"] for w in plan["program"]["workouts"]]
+        check("микс чередует зал и дом", venues == ["gym", "home", "gym", "home"], venues)
+        check("в плане 4 тренировки", len(plan["program"]["workouts"]) == 4)
+        check("напоминание создано опросом",
+              plan["reminders"] and plan["reminders"][0]["time"] == "08:30",
+              plan.get("reminders"))
+        check("дни напоминания из профиля",
+              plan["reminders"][0]["days"] == "Пн, Вт, Чт, Пт", plan["reminders"])
+
+        status, bad = await call("POST", "/api/survey", {
+            "gender": "male", "age": 5, "height_cm": 180, "weight_kg": 80,
+            "goal": "keep_fit", "level": "beginner", "equipment": "gym",
+            "days_per_week": 3,
+        }, token=token)
+        check("некорректная анкета отклонена", status == 400 and bad.get("field") == "age", bad)
+
+        status, link = await call("POST", "/api/telegram/link", {}, token=token)
+        check("ссылка на бота выдана",
+              status == 200 and link["url"].startswith("https://t.me/smoke_fitness_bot?start="),
+              link)
+
+    web_user = storage.get_user_by_identifier("phone", "+79991112233")
+    check("веб-аккаунт в базе", web_user is not None and web_user.telegram_id is None)
+
+    users_before = storage.count_users()
+    second_user = {"id": 777002, "first_name": "Мария", "username": "maria", "is_bot": False}
+    push({"message": {"message_id": 1, "chat": {"id": CHAT + 1}, "from": second_user,
+                      "text": f"/start {link['code']}"}})
+    await asyncio.sleep(1.2)
+
+    linked = storage.get_user(web_user.id)
+    check("Telegram привязан к веб-аккаунту", linked.telegram_id == 777002,
+          f"telegram_id={linked.telegram_id}")
+    check("профиль с сайта сохранён",
+          (linked.profile.equipment, linked.profile.weight_kg) == ("mix", 63.0),
+          f"{linked.profile.equipment}/{linked.profile.weight_kg}")
+    check("дубликат аккаунта не создан", storage.count_users() == users_before,
+          f"{users_before} -> {storage.count_users()}")
+
+    probe.execute("UPDATE reminders SET next_fire_at = ? WHERE user_id = ?",
+                  (time.time() - 1, web_user.id))
+    probe.commit()
+    before = len(messages())
+    deadline = time.time() + 12
+    delivered = False
+    while time.time() < deadline:
+        await asyncio.sleep(0.3)
+        for method, payload in sent[-40:]:
+            if method == "sendMessage" and payload.get("chat_id") == 777002:
+                delivered = True
+        if delivered:
+            break
+    check("напоминание дошло в привязанный Telegram", delivered, "не пришло за 12 сек")
+
+    await web_runner.cleanup()
+
+    print("\n=== 9. Устойчивость ===")
     r = log("неизвестная команда", await step(text_update("/wat")))
     check("показал справку", any("Команды" in m for m in r))
     offset = probe.execute("SELECT value FROM meta WHERE key='update_offset'").fetchone()

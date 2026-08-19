@@ -36,6 +36,17 @@ ONBOARDING_REMINDER_SKIPPED = (
 )
 ASK_REMINDER_CUSTOM_TIME = "Во сколько напоминать? Напиши время в формате ЧЧ:ММ, например 07:30"
 
+LINK_ALREADY_DONE = "Этот аккаунт уже подключён ✅"
+LINK_TAKEN = (
+    "Этот Telegram уже привязан к другому аккаунту. Зайди на сайт под ним "
+    "или отвяжи старый аккаунт."
+)
+LINK_CONFLICT = (
+    "У этого Telegram уже есть свой профиль с историей тренировок, поэтому "
+    "объединять аккаунты я не буду — иначе данные потеряются.\n\n"
+    "Продолжай пользоваться этим профилем: /menu"
+)
+
 HELP = (
     "<b>Команды</b>\n"
     "/menu — главное меню\n"
@@ -185,6 +196,20 @@ REMINDER_MESSAGES = {
 DISCLAIMER_SHORT = (
     "<i>Общие рекомендации, не медицинский совет. При боли и травмах — к врачу.</i>"
 )
+
+
+def link_success(schedule: str) -> str:
+    """Confirmation shown after a web account connects to the bot."""
+    lines = [
+        "🔗 Аккаунт с сайта подключён!",
+        "",
+        "Твой профиль и программа уже здесь.",
+    ]
+    if schedule:
+        lines.append(f"Напоминания о тренировках: <b>{schedule}</b>.")
+    else:
+        lines.append("Напоминания можно включить командой /reminders.")
+    return "\n".join(lines)
 
 
 def paywall(price: int, days: int) -> str:

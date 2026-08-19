@@ -317,8 +317,66 @@ class FitnessBot:
     # ------------------------------------------------------------------
 
     async def _cmd_start(self, chat_id: int, user: User, argument: str = "") -> None:
+        # A deep link from the web app carries a one-time account link code.
+        if argument and await self._link_web_account(chat_id, user, argument.strip()):
+            return
+
         await self._send(chat_id, texts.WELCOME.format(name=user.first_name or "друг"))
         await self._send_onboarding_step(chat_id, user, ONBOARDING_ORDER[0])
+
+    async def _link_web_account(self, chat_id: int, user: User, code: str) -> bool:
+        """
+        Connect the Telegram chat to an account created on the web.
+
+        Returns True when the code was recognised, whatever the outcome, so the
+        caller does not also start onboarding.
+        """
+        web_user_id = self.storage.consume_link_code(code)
+        if web_user_id is None:
+            return False
+
+        if web_user_id == user.id:
+            await self._send(chat_id, texts.LINK_ALREADY_DONE)
+            await self._cmd_menu(chat_id, user, "")
+            return True
+
+        web_user = self.storage.get_user(web_user_id)
+        if web_user is None:
+            return False
+        if web_user.telegram_id is not None and web_user.telegram_id != user.telegram_id:
+            await self._send(chat_id, texts.LINK_TAKEN)
+            return True
+
+        # This chat may already be the Telegram half of a different web
+        # account; say so plainly instead of talking about profiles.
+        if user.email or user.phone:
+            await self._send(chat_id, texts.LINK_TAKEN)
+            return True
+
+        # The bot created a row for this chat the moment the message arrived.
+        # It can be dropped only while it is still empty — otherwise the user
+        # would silently lose the history they built in Telegram.
+        if self.storage.user_has_activity(user.id):
+            await self._send(chat_id, texts.LINK_CONFLICT)
+            return True
+
+        self.storage.delete_user(user.id)
+        if not self.storage.attach_telegram(
+            web_user_id, user.telegram_id, user.first_name, user.username
+        ):
+            await self._send(chat_id, texts.LINK_TAKEN)
+            return True
+
+        linked = self.storage.get_user(web_user_id)
+        reminders = self.storage.list_reminders(web_user_id)
+        schedule = (
+            f"{reminders[0].time_local}, {format_days(reminders[0].weekdays())}"
+            if reminders
+            else ""
+        )
+        await self._send(chat_id, texts.link_success(schedule))
+        await self._cmd_today(chat_id, linked, "")
+        return True
 
     async def _send_onboarding_step(self, chat_id: int, user: User, step: str) -> None:
         prompts = {
@@ -606,7 +664,9 @@ class FitnessBot:
 
         await self._send(
             chat_id,
-            render_workout(workout) + "\n\n" + texts.DISCLAIMER_SHORT,
+            render_workout(workout, show_venue=user.profile.equipment == "mix")
+            + "\n\n"
+            + texts.DISCLAIMER_SHORT,
             keyboards.today_keyboard(),
         )
 
@@ -887,7 +947,9 @@ class FitnessBot:
     async def _deliver_reminder(self, reminder: Reminder) -> bool:
         """Send one reminder. Returns False when the user is unreachable."""
         user = self.storage.get_user(reminder.user_id)
-        if user is None:
+        if user is None or user.telegram_id is None:
+            # A web account that has not linked Telegram yet has nowhere to
+            # receive the ping; it starts arriving right after linking.
             return False
 
         template = texts.REMINDER_MESSAGES.get(reminder.kind, texts.REMINDER_MESSAGES["custom"])

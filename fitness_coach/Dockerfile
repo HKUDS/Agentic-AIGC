@@ -18,4 +18,8 @@ COPY fitness_coach /app/fitness_coach
 # non-root user could not write the SQLite file there.
 RUN mkdir -p /data
 
+# The web sign-up page listens here; PaaS platforms override it through PORT.
+ENV FITNESS_WEB_PORT=8080
+EXPOSE 8080
+
 CMD ["python", "-m", "fitness_coach"]

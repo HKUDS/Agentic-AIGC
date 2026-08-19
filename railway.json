@@ -8,6 +8,8 @@
     "startCommand": "python -m fitness_coach",
     "numReplicas": 1,
     "restartPolicyType": "ALWAYS",
-    "sleepApplication": false
+    "sleepApplication": false,
+    "healthcheckPath": "/healthz",
+    "healthcheckTimeout": 30
   }
 }

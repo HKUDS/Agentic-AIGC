@@ -761,6 +761,164 @@ class RobustnessTests(BotTestCase):
         self.assertNotIn("<b> и", self.client.all_text)
 
 
+class WebAccountLinkTests(BotTestCase):
+    """Connecting an account created on the web to the Telegram bot."""
+
+    def make_web_account(self, email="ivan@example.com", days=3, reminder="07:00"):
+        user = self.storage.create_web_user("email", email)
+        self.storage.update_profile(
+            user.id, age=34, height_cm=182, weight_kg=88.5,
+            goal="lose_weight", equipment="mix", days_per_week=days,
+            timezone_offset_minutes=180,
+        )
+        if reminder:
+            self.storage.add_reminder(
+                user.id, "workout", reminder, "0,2,4", "", time.time() + 3600
+            )
+        return self.storage.get_user(user.id)
+
+    def link_code(self, user_id, code="linkcode123", ttl=900):
+        self.storage.create_link_code(user_id, code, time.time() + ttl)
+        return code
+
+    async def test_deep_link_attaches_telegram_to_the_web_account(self):
+        web_user = self.make_web_account()
+        code = self.link_code(web_user.id)
+
+        await self.send(f"/start {code}")
+
+        linked = self.storage.get_user(web_user.id)
+        self.assertEqual(linked.telegram_id, 99)
+        self.assertEqual(linked.email, "ivan@example.com")
+        # The survey answers survive the link.
+        self.assertEqual(linked.profile.equipment, "mix")
+        self.assertEqual(linked.profile.weight_kg, 88.5)
+        self.assertIn("Аккаунт с сайта подключён", self.client.all_text)
+
+    async def test_linking_does_not_leave_a_duplicate_account(self):
+        web_user = self.make_web_account()
+        code = self.link_code(web_user.id)
+
+        await self.send(f"/start {code}")
+
+        self.assertEqual(self.storage.count_users(), 1)
+        self.assertEqual(self.storage.get_user_by_telegram_id(99).id, web_user.id)
+
+    async def test_linking_skips_onboarding_and_shows_the_plan(self):
+        code = self.link_code(self.make_web_account().id)
+        await self.send(f"/start {code}")
+
+        text = self.client.all_text
+        self.assertNotIn("Укажи пол", text)
+        self.assertIn("Разминка", text)
+
+    async def test_link_confirmation_mentions_the_reminder_schedule(self):
+        code = self.link_code(self.make_web_account(reminder="07:00").id)
+        await self.send(f"/start {code}")
+        self.assertIn("07:00", self.client.all_text)
+
+    async def test_reminders_start_arriving_only_after_linking(self):
+        web_user = self.make_web_account(reminder="")
+        reminder = self.storage.add_reminder(
+            web_user.id, "workout", "07:00", "0,1,2,3,4,5,6", "", time.time() - 5
+        )
+        # No Telegram yet: nothing can be delivered.
+        self.assertEqual(await self.bot.scheduler.run_once(), 0)
+        self.assertEqual(self.client.messages, [])
+
+        await self.send(f"/start {self.link_code(web_user.id)}")
+        self.storage.mark_reminder_fired(reminder.id, 0.0, time.time() - 1)
+        self.client.reset()
+
+        self.assertEqual(await self.bot.scheduler.run_once(), 1)
+        self.assertIn("Время тренировки", self.client.last_text)
+
+    async def test_link_code_works_only_once(self):
+        web_user = self.make_web_account()
+        code = self.link_code(web_user.id)
+        await self.send(f"/start {code}")
+        self.client.reset()
+
+        await self.send(f"/start {code}", telegram_id=1234)
+        # The spent code falls through to the normal welcome, not a second link.
+        self.assertIn("Привет", self.client.all_text)
+        self.assertEqual(self.storage.get_user(web_user.id).telegram_id, 99)
+
+    async def test_expired_link_code_is_ignored(self):
+        web_user = self.make_web_account()
+        self.storage.create_link_code(web_user.id, "old", time.time() - 1)
+
+        await self.send("/start old")
+        self.assertIsNone(self.storage.get_user(web_user.id).telegram_id)
+        self.assertIn("Привет", self.client.all_text)
+
+    async def test_unknown_payload_starts_normal_onboarding(self):
+        await self.send("/start whatever")
+        self.assertIn("Укажи пол", self.client.all_text)
+
+    async def test_existing_telegram_history_is_never_merged_away(self):
+        telegram_user = await self.complete_onboarding()
+        self.storage.add_workout_log(telegram_user.id, "День A", difficulty=4)
+        web_user = self.make_web_account(email="other@example.com")
+        self.client.reset()
+
+        await self.send(f"/start {self.link_code(web_user.id)}")
+
+        self.assertIn("уже есть свой профиль", self.client.last_text)
+        self.assertEqual(len(self.storage.list_workout_logs(telegram_user.id)), 1)
+        self.assertIsNone(self.storage.get_user(web_user.id).telegram_id)
+
+    async def test_telegram_already_bound_to_another_web_account(self):
+        first = self.make_web_account(email="first@example.com", reminder="")
+        second = self.make_web_account(email="second@example.com", reminder="")
+        await self.send(f"/start {self.link_code(first.id)}")
+        self.client.reset()
+
+        await self.send(f"/start {self.link_code(second.id, code='second-code')}")
+        self.assertIn("уже привязан", self.client.last_text)
+        self.assertIsNone(self.storage.get_user(second.id).telegram_id)
+
+    async def test_relinking_the_same_account_is_a_no_op(self):
+        web_user = self.make_web_account(reminder="")
+        await self.send(f"/start {self.link_code(web_user.id)}")
+        self.client.reset()
+
+        await self.send(f"/start {self.link_code(web_user.id, code='again')}")
+        self.assertIn("уже подключён", self.client.all_text)
+        self.assertEqual(self.storage.count_users(), 1)
+
+
+class MixEquipmentTests(BotTestCase):
+    async def test_mix_can_be_chosen_in_the_bot_too(self):
+        await self.send("/start")
+        await self.tap("onb_gender:male")
+        await self.send("30")
+        await self.send("180")
+        await self.send("80")
+        await self.tap("onb_goal:keep_fit")
+        await self.tap("onb_level:intermediate")
+        await self.tap("onb_equipment:mix")
+        await self.tap("onb_days:4")
+        await self.send("+3")
+        await self.tap("onb_reminder:19:00")
+
+        user = self.storage.get_user_by_telegram_id(99)
+        self.assertEqual(user.profile.equipment, "mix")
+        self.assertIn("в зале", self.client.all_text)
+
+    async def test_program_labels_each_day_with_its_venue(self):
+        await self.complete_onboarding()
+        user = self.storage.get_user_by_telegram_id(99)
+        self.storage.update_profile(user.id, equipment="mix", days_per_week=4)
+        self.client.reset()
+
+        await self.send("/program")
+        text = self.client.all_text
+        self.assertIn("· в зале", text)
+        self.assertIn("· дома", text)
+        self.assertIn("микс: дом и зал", text)
+
+
 class TelegramClientTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.client = TelegramClient("token")

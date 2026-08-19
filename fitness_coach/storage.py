@@ -11,14 +11,16 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .models import Profile, Reminder, Subscription, User, WeightLog, WorkoutLog
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id INTEGER NOT NULL UNIQUE,
+    telegram_id INTEGER UNIQUE,
+    email TEXT UNIQUE,
+    phone TEXT UNIQUE,
     first_name TEXT NOT NULL DEFAULT '',
     username TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL,
@@ -118,6 +120,28 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- One pending verification code per identifier (email or phone). Only the
+-- hash is stored, never the code itself.
+CREATE TABLE IF NOT EXISTS auth_codes (
+    identifier TEXT PRIMARY KEY,
+    channel TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    sends INTEGER NOT NULL DEFAULT 1,
+    window_started_at REAL NOT NULL
+);
+
+-- Short-lived codes that connect a web account to the Telegram bot.
+CREATE TABLE IF NOT EXISTS link_codes (
+    code TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    used_at REAL
+);
 """
 
 
@@ -145,6 +169,7 @@ class Storage:
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(_SCHEMA)
             self._conn.commit()
+            self._migrate()
 
     def close(self) -> None:
         with self._lock:
@@ -193,6 +218,61 @@ class Storage:
                 ).fetchone()
 
             return self._hydrate_user(row)
+
+    def _migrate(self) -> None:
+        """
+        Bring an older database up to the current schema.
+
+        The web sign-up added email/phone and made `telegram_id` nullable;
+        SQLite cannot drop a NOT NULL constraint in place, so the users table
+        is rebuilt when the old definition is found. Row ids are preserved, so
+        every foreign key keeps pointing at the right user.
+        """
+        with self._lock:
+            columns = {
+                row["name"]: row
+                for row in self._conn.execute("PRAGMA table_info(users)").fetchall()
+            }
+            if not columns:
+                return
+
+            for name in ("email", "phone"):
+                if name not in columns:
+                    self._conn.execute(f"ALTER TABLE users ADD COLUMN {name} TEXT")
+                    self._conn.execute(
+                        f"CREATE UNIQUE INDEX IF NOT EXISTS idx_users_{name}"
+                        f" ON users({name}) WHERE {name} IS NOT NULL"
+                    )
+            self._conn.commit()
+
+            if not columns.get("telegram_id") or not columns["telegram_id"]["notnull"]:
+                return
+
+            self._conn.execute("PRAGMA foreign_keys=OFF")
+            self._conn.executescript(
+                """
+                BEGIN;
+                CREATE TABLE users_migrated (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_id INTEGER UNIQUE,
+                    email TEXT UNIQUE,
+                    phone TEXT UNIQUE,
+                    first_name TEXT NOT NULL DEFAULT '',
+                    username TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    state TEXT NOT NULL DEFAULT ''
+                );
+                INSERT INTO users_migrated
+                    (id, telegram_id, email, phone, first_name, username, created_at, state)
+                SELECT id, telegram_id, email, phone, first_name, username, created_at, state
+                FROM users;
+                DROP TABLE users;
+                ALTER TABLE users_migrated RENAME TO users;
+                COMMIT;
+                """
+            )
+            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._conn.commit()
 
     def get_user_by_telegram_id(self, telegram_id: int) -> Optional[User]:
         with self._lock:
@@ -244,7 +324,9 @@ class Storage:
 
         return User(
             id=user_id,
-            telegram_id=int(row["telegram_id"]),
+            telegram_id=int(row["telegram_id"]) if row["telegram_id"] is not None else None,
+            email=row["email"],
+            phone=row["phone"],
             first_name=row["first_name"],
             username=row["username"],
             created_at=row["created_at"],
@@ -252,6 +334,60 @@ class Storage:
             profile=profile,
             subscription=subscription,
         )
+
+    def get_user_by_identifier(self, channel: str, identifier: str) -> Optional[User]:
+        """Look up a web account by its verified email or phone."""
+        column = "email" if channel == "email" else "phone"
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT * FROM users WHERE {column} = ?", (identifier,)
+            ).fetchone()
+            return self._hydrate_user(row) if row else None
+
+    def create_web_user(self, channel: str, identifier: str, first_name: str = "") -> User:
+        """Create an account identified by a verified email or phone."""
+        column = "email" if channel == "email" else "phone"
+        with self._lock:
+            cursor = self._conn.execute(
+                f"INSERT INTO users ({column}, first_name, created_at, state)"
+                " VALUES (?, ?, ?, '')",
+                (identifier, first_name, time.time()),
+            )
+            user_id = int(cursor.lastrowid)
+            self._conn.execute("INSERT INTO profiles (user_id) VALUES (?)", (user_id,))
+            self._conn.execute(
+                "INSERT INTO subscriptions (user_id, plan) VALUES (?, 'free')", (user_id,)
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+            return self._hydrate_user(row)
+
+    def attach_telegram(
+        self, user_id: int, telegram_id: int, first_name: str = "", username: str = ""
+    ) -> bool:
+        """
+        Point a web account at a Telegram account.
+
+        Returns False when that Telegram id already belongs to somebody else.
+        """
+        with self._lock:
+            clash = self._conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ? AND id <> ?",
+                (telegram_id, user_id),
+            ).fetchone()
+            if clash is not None:
+                return False
+            self._conn.execute(
+                "UPDATE users SET telegram_id = ?,"
+                " first_name = CASE WHEN first_name = '' THEN ? ELSE first_name END,"
+                " username = CASE WHEN username = '' THEN ? ELSE username END"
+                " WHERE id = ?",
+                (telegram_id, first_name, username, user_id),
+            )
+            self._conn.commit()
+        return True
 
     def set_state(self, user_id: int, state: str) -> None:
         with self._lock:
@@ -645,6 +781,136 @@ class Storage:
             return True
         except sqlite3.IntegrityError:
             return False
+
+    # ------------------------------------------------------------------
+    # Verification codes and account linking
+    # ------------------------------------------------------------------
+
+    def save_auth_code(
+        self,
+        identifier: str,
+        channel: str,
+        code_hash: str,
+        expires_at: float,
+        window_started_at: float,
+        sends: int,
+        now: Optional[float] = None,
+    ) -> None:
+        """Store the pending code for an identifier, replacing any previous one."""
+        moment = now if now is not None else time.time()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO auth_codes (identifier, channel, code_hash, created_at,"
+                " expires_at, attempts, sends, window_started_at)"
+                " VALUES (?, ?, ?, ?, ?, 0, ?, ?)"
+                " ON CONFLICT(identifier) DO UPDATE SET"
+                " channel = excluded.channel,"
+                " code_hash = excluded.code_hash,"
+                " created_at = excluded.created_at,"
+                " expires_at = excluded.expires_at,"
+                " attempts = 0,"
+                " sends = excluded.sends,"
+                " window_started_at = excluded.window_started_at",
+                (
+                    identifier,
+                    channel,
+                    code_hash,
+                    moment,
+                    expires_at,
+                    sends,
+                    window_started_at,
+                ),
+            )
+            self._conn.commit()
+
+    def get_auth_code(self, identifier: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM auth_codes WHERE identifier = ?", (identifier,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def bump_auth_attempts(self, identifier: str) -> int:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE auth_codes SET attempts = attempts + 1 WHERE identifier = ?",
+                (identifier,),
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT attempts FROM auth_codes WHERE identifier = ?", (identifier,)
+            ).fetchone()
+        return int(row["attempts"]) if row else 0
+
+    def delete_auth_code(self, identifier: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM auth_codes WHERE identifier = ?", (identifier,)
+            )
+            self._conn.commit()
+
+    def purge_expired_auth_codes(self, now: Optional[float] = None) -> int:
+        moment = now if now is not None else time.time()
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM auth_codes WHERE expires_at < ?", (moment - 3600,)
+            )
+            self._conn.commit()
+        return cursor.rowcount
+
+    def user_has_activity(self, user_id: int) -> bool:
+        """
+        True when an account holds data worth keeping.
+
+        Used before merging a throwaway Telegram row into a web account: an
+        empty row can be dropped, a used one must never be.
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT"
+                " (SELECT COUNT(*) FROM workout_logs WHERE user_id = ?) AS workouts,"
+                " (SELECT COUNT(*) FROM weight_logs WHERE user_id = ?) AS weights,"
+                " (SELECT COUNT(*) FROM reminders WHERE user_id = ?) AS reminders,"
+                " (SELECT COUNT(*) FROM payments WHERE user_id = ?) AS payments,"
+                " (SELECT COUNT(*) FROM profiles WHERE user_id = ? AND age IS NOT NULL)"
+                " AS profiles",
+                (user_id, user_id, user_id, user_id, user_id),
+            ).fetchone()
+        return any(int(row[key]) > 0 for key in row.keys())
+
+    def delete_user(self, user_id: int) -> None:
+        """Remove an account and everything hanging off it."""
+        with self._lock:
+            self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            self._conn.commit()
+
+    def create_link_code(self, user_id: int, code: str, expires_at: float) -> None:
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM link_codes WHERE user_id = ? AND used_at IS NULL",
+                (user_id,),
+            )
+            self._conn.execute(
+                "INSERT INTO link_codes (code, user_id, created_at, expires_at)"
+                " VALUES (?, ?, ?, ?)",
+                (code, user_id, time.time(), expires_at),
+            )
+            self._conn.commit()
+
+    def consume_link_code(self, code: str, now: Optional[float] = None) -> Optional[int]:
+        """Redeem a link code once, returning the user id it belongs to."""
+        moment = now if now is not None else time.time()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM link_codes WHERE code = ?", (code,)
+            ).fetchone()
+            if row is None or row["used_at"] is not None or row["expires_at"] < moment:
+                return None
+            self._conn.execute(
+                "UPDATE link_codes SET used_at = ? WHERE code = ?", (moment, code)
+            )
+            self._conn.commit()
+        return int(row["user_id"])
 
     # ------------------------------------------------------------------
     # Bot-wide metadata

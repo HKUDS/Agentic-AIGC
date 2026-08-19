@@ -162,6 +162,19 @@ _SPLITS: Dict[int, Sequence[Tuple[str, str, Sequence[str]]]] = {
 _FOCUS_FALLBACK = "всё тело"
 
 
+# "mix" alternates venues day by day instead of blending the libraries: a
+# workout you can only half-do because the equipment is elsewhere is useless.
+_VENUE_ROTATION = ("gym", "home")
+_VENUE_SUFFIX = {"gym": " · в зале", "home": " · дома"}
+
+
+def equipment_for_day(equipment: str, day_index: int) -> str:
+    """Which equipment set a given training day uses."""
+    if equipment != "mix":
+        return equipment
+    return _VENUE_ROTATION[day_index % len(_VENUE_ROTATION)]
+
+
 def _clamp_days(days_per_week: int) -> int:
     if days_per_week < 2:
         return 2
@@ -227,17 +240,18 @@ def generate_program(profile: Profile, weeks: int = 1) -> Program:
 
     workouts: List[Workout] = []
     for index, (title, focus, groups) in enumerate(split):
+        venue = equipment_for_day(profile.equipment, index)
         used: set = set()
         exercises: List[Exercise] = []
         for group in groups:
-            exercise = _pick_exercises(rng, profile.equipment, group, profile.level, used)
+            exercise = _pick_exercises(rng, venue, group, profile.level, used)
             exercise.sets = sets
             exercise.reps = reps
             exercise.rest_seconds = rest
             exercises.append(exercise)
 
         for _ in range(cardio_blocks):
-            cardio = _pick_exercises(rng, profile.equipment, "cardio", profile.level, used)
+            cardio = _pick_exercises(rng, venue, "cardio", profile.level, used)
             cardio.sets = 1
             cardio.reps = "8-12 мин"
             cardio.rest_seconds = 60
@@ -255,6 +269,7 @@ def generate_program(profile: Profile, weeks: int = 1) -> Program:
                 focus=focus or _FOCUS_FALLBACK,
                 exercises=exercises,
                 estimated_minutes=int(round(minutes)),
+                venue=venue,
             )
         )
 
@@ -292,9 +307,15 @@ def _progression_note(goal: str, weeks: int) -> str:
     )
 
 
-def render_workout(workout: Workout) -> str:
-    """Format a single workout for a Telegram message."""
-    lines = [f"<b>{workout.title}</b>", f"Фокус: {workout.focus}", ""]
+def render_workout(workout: Workout, show_venue: bool = False) -> str:
+    """
+    Format a single workout for a Telegram message.
+
+    `show_venue` appends "· в зале" / "· дома" — only useful for a mixed
+    program, where the place changes from day to day.
+    """
+    suffix = _VENUE_SUFFIX.get(workout.venue, "") if show_venue else ""
+    lines = [f"<b>{workout.title}{suffix}</b>", f"Фокус: {workout.focus}", ""]
     lines.append("Разминка: 8-10 минут — суставная гимнастика и лёгкое кардио.")
     lines.append("")
     for number, exercise in enumerate(workout.exercises, start=1):
@@ -315,8 +336,9 @@ def render_program(program: Program) -> str:
         f"Длительность: {program.weeks} нед., {len(program.workouts)} тренировки в неделю\n"
     )
     blocks = [header]
+    show_venue = program.equipment == "mix"
     for workout in program.workouts:
-        blocks.append(render_workout(workout))
+        blocks.append(render_workout(workout, show_venue))
     blocks.append(f"<i>{program.notes}</i>")
     return "\n\n".join(blocks)
 
@@ -338,7 +360,10 @@ EQUIPMENT_LABELS = {
     "none": "без оборудования",
     "home": "гантели/резинки дома",
     "gym": "зал",
+    "mix": "микс: дом и зал",
 }
+
+VENUE_LABELS = {"home": "дома", "gym": "в зале", "none": "дома"}
 
 GENDER_LABELS = {
     "male": "мужской",
