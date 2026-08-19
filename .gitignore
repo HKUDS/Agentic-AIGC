@@ -14,9 +14,6 @@ wheels/
 .vimax/
 .test/
 
-# Fitness coach bot database
-.fitness_coach/
-
 # Local environment files
 .env
 .env.*
