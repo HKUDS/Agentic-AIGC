@@ -222,10 +222,22 @@ class TelegramClient:
         if caption:
             form.add_field("caption", caption[:1024])
         form.add_field("document", content, filename=filename)
-        async with session.post(
-            url, data=form, timeout=aiohttp.ClientTimeout(total=60)
-        ) as response:
-            data = await response.json()
+        try:
+            async with session.post(
+                url, data=form, timeout=aiohttp.ClientTimeout(total=60)
+            ) as response:
+                try:
+                    data = await response.json()
+                except (aiohttp.ContentTypeError, ValueError):
+                    # A proxy or gateway can answer with a non-JSON body; the
+                    # caller still needs a TelegramError it can handle.
+                    detail = await response.text()
+                    raise TelegramError(
+                        "sendDocument", f"HTTP {response.status}: {detail[:200]}"
+                    )
+        except (aiohttp.ClientError, asyncio.TimeoutError) as error:
+            raise TelegramError("sendDocument", f"network error: {error}") from error
+
         if not data.get("ok"):
             raise TelegramError("sendDocument", data.get("description", "unknown error"))
         return data.get("result")

@@ -962,12 +962,21 @@ class FitnessBot:
             self.storage.list_weight_logs(user.id, limit=1000),
             program_text,
         )
-        await self.client.send_document(
-            chat_id,
-            filename="fitness_export.json",
-            content=payload,
-            caption="Твои данные: профиль, программа, тренировки и вес.",
-        )
+        try:
+            await self.client.send_document(
+                chat_id,
+                filename="fitness_export.json",
+                content=payload,
+                caption="Твои данные: профиль, программа, тренировки и вес.",
+            )
+        except TelegramError as error:
+            # Uploads fail differently from messages, so the user needs to be
+            # told rather than left waiting for a file that never arrives.
+            logger.warning("Export upload failed for chat %s: %s", chat_id, error)
+            await self._send(
+                chat_id,
+                "Не удалось отправить файл с данными. Попробуй ещё раз через минуту.",
+            )
 
     # ------------------------------------------------------------------
     # Profile and subscription

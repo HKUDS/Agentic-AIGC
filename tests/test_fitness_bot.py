@@ -24,6 +24,7 @@ class FakeTelegramClient:
         self.pre_checkout_answers = []
         self.commands = []
         self.fail_send_with = None
+        self.fail_document_with = None
 
     async def send_message(self, chat_id, text, reply_markup=None, **kwargs):
         if self.fail_send_with is not None:
@@ -43,6 +44,8 @@ class FakeTelegramClient:
         self.pre_checkout_answers.append({"id": pre_checkout_query_id, "ok": ok})
 
     async def send_document(self, chat_id, filename, content, caption=""):
+        if self.fail_document_with is not None:
+            raise self.fail_document_with
         self.documents.append({"chat_id": chat_id, "filename": filename, "content": content})
 
     async def set_my_commands(self, commands):
@@ -622,6 +625,17 @@ class ProFeatureTests(BotTestCase):
         self.assertEqual(len(self.client.documents), 1)
         self.assertEqual(self.client.documents[0]["filename"], "fitness_export.json")
         self.assertIn(b"workouts", self.client.documents[0]["content"])
+
+    async def test_failed_export_upload_tells_the_user(self):
+        await self.complete_onboarding()
+        self.make_pro()
+        self.client.fail_document_with = TelegramError(
+            "sendDocument", "network error: connection reset"
+        )
+        self.client.reset()
+
+        await self.send("/export")  # Must not raise.
+        self.assertIn("Не удалось отправить файл", self.client.last_text)
 
     async def test_pro_program_covers_four_weeks(self):
         await self.complete_onboarding()
